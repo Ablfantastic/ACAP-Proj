@@ -7,15 +7,6 @@
 | **Plataforma** | Amazon Web Services (AWS) |
 | **Tipus** | Aplicació web de venda d'entrades, amb èmfasi en escalabilitat i consistència sota allau de peticions |
 
-> **Com llegir aquest document**
->
-> - Les seccions 1 a 3 expliquen *què* es construeix i *per què*.
-> - Les seccions 4 i 5 fixen els requisits (*què ha de complir* el sistema).
-> - Les seccions 6 a 8 descriuen *com* funciona per dins: arquitectura, fluxos i dades.
-> - Les seccions 9 a 11 tanquen amb la demo, el que queda fora d'abast i un glossari de conceptes.
->
-> Els blocs marcats amb 💡 **Concepte clau** expliquen la idea tècnica que hi ha darrere d'una decisió de disseny.
-
 ## Índex
 
 1. Resum
@@ -28,7 +19,7 @@
 8. Model de dades
 9. Què ha d'ensenyar la demo
 10. Fora d'abast
-11. Glossari de conceptes clau
+11. Glossari
 
 ---
 
@@ -39,8 +30,6 @@ El projecte és una web de venda d'entrades, en la línia de Ticketmaster, pensa
 El nucli entregable cobreix consultar esdeveniments, passar per una sala d'espera virtual, reservar un seient i completar la compra. Les compres no arriben directament a la base de dades: entren en una cua (SQS) perquè el sistema no se saturi, i un flux coordinat (Step Functions) executa els passos de reservar, pagar i generar l'entrada.
 
 La demo simula molts usuaris comprant alhora i mostra, amb gràfiques, com respon el sistema.
-
-> **En una frase:** una taquilla en línia que, davant de milers d'usuaris alhora, *fa cua* en lloc de *caure*, i que garanteix que cada seient té com a màxim un propietari.
 
 ## 2. Objectius
 
@@ -80,7 +69,7 @@ Funcions del nucli:
 
 Cada mòdul és opcional respecte del nucli i es pot desenvolupar en paral·lel un cop el flux bàsic existeix. L'ordre de sota és una prioritat suggerida, no una obligació: el mòdul 7 (càrrega, caos i observabilitat) és el que fa visible la resta i convé tenir-lo encara que alguns mòduls intermedis no es facin.
 
-**Visió de conjunt:**
+Resum dels mòduls:
 
 | Mòdul | Tema | Serveis principals |
 |---|---|---|
@@ -108,7 +97,7 @@ Aquest mòdul és el lloc natural per explotar el servei de cues d'AWS: cua est�
 - **API Gateway WebSocket** perquè l'usuari vegi la seva posició i els seients ocupant-se en directe.
 - **Experiment:** comparar el rendiment amb cau i sense cau sota la mateixa càrrega, i documentar la diferència.
 
-> 💡 **Concepte clau — cau vs. font de veritat.** Una cau (*cache*) és una còpia ràpida de les dades, però no és l'original. Aquí DynamoDB continua sent la font de veritat de la venda: Redis accelera la lectura i la sala d'espera, però l'escriptura que tanca la venda ha de seguir sent atòmica a la base de dades.
+DynamoDB continua sent la font de veritat de la venda. Redis accelera la lectura i la sala d'espera; l'escriptura que tanca la venda ha de seguir sent atòmica a la base de dades.
 
 #### Mòdul 3. Preu dinàmic i analítica
 
@@ -142,11 +131,7 @@ Aquest mòdul és el lloc natural per explotar el servei de cues d'AWS: cua est�
 - Enginyeria del caos amb **AWS Fault Injection Service**: fer fallar una Lambda o saturar una cua a propòsit i ensenyar que el sistema es recupera (reintents, dead-letter queue, venda coherent).
 - **CloudWatch** i **X-Ray** per mesurar latència, errors, profunditat de les cues i traces del flux de compra, i per documentar els resultats amb gràfiques.
 
-> 💡 **Concepte clau — enginyeria del caos.** Consisteix a provocar fallades de manera controlada per comprovar que el sistema es recupera com s'espera. No n'hi ha prou que el sistema funcioni quan tot va bé: cal demostrar què passa quan alguna peça falla.
-
 ## 4. Requisits funcionals
-
-Els requisits funcionals descriuen **què ha de poder fer** l'usuari o el sistema. Cada un té un identificador (RF-xx) per poder-hi fer referència a les proves i a la demo.
 
 ### 4.1. Requisits del nucli
 
@@ -185,8 +170,6 @@ Només s'apliquen quan s'implementi el mòdul corresponent.
 
 ## 5. Requisits no funcionals
 
-Els requisits no funcionals descriuen **com de bé** ho ha de fer el sistema: consistència, rendiment, robustesa i cost.
-
 | ID | Requisit |
 |---|---|
 | RNF-01 | **Unicitat del seient.** L'invariant principal del sistema: un seient té com a màxim una reserva vigent o una venda. S'implementa amb escriptura condicional a DynamoDB (l'actualització només té èxit si l'estat esperat encara és «lliure» o «reservat per aquesta comanda»). |
@@ -197,10 +180,6 @@ Els requisits no funcionals descriuen **com de bé** ho ha de fer el sistema: co
 | RNF-06 | **Observabilitat.** Els fluxos del nucli deixen mètriques i traces suficients per explicar, a la demo, què ha passat durant una allau. |
 | RNF-07 | **Cost de demo.** Els recursos es poden apagar o són de capa gratuïta o de baix cost. No es deixa una càrrega de milers d'usuaris corrent sense control. |
 | RNF-08 | **Pagament simulat.** El nucli no integra una passarel·la real. El pas de pagament és un servei simulat amb èxit i error injectables, prou realista per provar el flux i el caos. |
-
-> 💡 **Concepte clau — escriptura condicional (RNF-01).** Imagina que l'Usuari A i l'Usuari B fan clic al mateix seient en el mateix mil·lisegon. Si el sistema primer *llegeix* l'estat («lliure») i després *escriu* («reservat»), tots dos poden llegir «lliure» i tots dos s'emporten el seient. L'escriptura condicional fusiona les dues passes en una sola operació atòmica: «canvia l'estat a reservat **només si** encara és lliure». Només una de les dues peticions compleix la condició; l'altra falla i rep un error explícit.
-
-> 💡 **Concepte clau — idempotència (RNF-04).** Una operació és idempotent si executar-la una o diverses vegades té el mateix resultat. SQS pot lliurar el mateix missatge més d'un cop, de manera que el treballador ha de poder rebre dues vegades la mateixa comanda sense generar dues entrades. La clau de comanda permet detectar que la feina ja s'ha fet.
 
 ## 6. Arquitectura del nucli
 
@@ -227,8 +206,6 @@ Papers de cada peça:
 - **Step Functions** és el procediment de la comanda: comprovar la reserva, pagar, marcar el seient com a venut i generar l'entrada. Una fallada deixa la comanda en un estat conegut i el seient no queda venut a mitges.
 
 La sala d'espera del nucli pot ser una taula DynamoDB amb un número de torn i una finestra de quants usuaris poden passar a la vegada. La cua FIFO i el WebSocket queden als mòduls 1 i 2; el nucli ja ha de tenir el concepte de torn i de porta tancada.
-
-> 💡 **Concepte clau — desacoblament amb una cua.** Sense cua, cada compra hauria de processar-se en el moment en què arriba: si n'arriben 10.000 alhora, el backend rep 10.000 peticions pesades de cop. Amb SQS, l'API només *deixa* la compra a la cua i respon de seguida; els treballadors la *recullen* al ritme que poden. El pic es converteix en una cua que creix i es buida, en lloc d'un servei que cau.
 
 ## 7. Fluxos principals
 
@@ -294,7 +271,7 @@ stateDiagram-v2
     ofereix_llista_espera --> venut: compra dins del termini
 ```
 
-> Mentre un seient és a `ofereix_llista_espera`, no torna al mapa lliure general (vegeu el mòdul 6).
+Mentre un seient és a `ofereix_llista_espera`, no torna al mapa lliure general (vegeu el mòdul 6).
 
 ### 7.5. Cues, rebots i missatges perduts
 
@@ -308,8 +285,6 @@ Quan s'implementi el mòdul 1, el sistema de cues queda així:
 | Dead-letter de compres | Estàndard o FIFO, segons l'origen | Comandes que han esgotat els reintents. |
 
 Un missatge de compra només va a la dead-letter queue després d'un nombre configurat d'intents. No es descarta en silenci.
-
-> 💡 **Concepte clau — cua estàndard vs. FIFO.** Una cua estàndard prioritza el volum: permet molt de paral·lelisme, però no garanteix l'ordre i pot lliurar un missatge més d'una vegada. Una cua FIFO (*first in, first out*) garanteix l'ordre d'arribada, que és just el que necessita una sala d'espera. Per això cada cua del sistema té el tipus que s'ajusta a la seva funció.
 
 ## 8. Model de dades (nucli)
 
@@ -343,8 +318,6 @@ La demo ha de tenir un guió curt i repetible:
 
 Eines de càrrega: un generador propi (scripts que criden l'API) o una eina de càrrega HTTP. L'informe ha d'indicar quants usuaris virtuals, quant ha durat la prova i què s'ha mesurat. No cal un nombre màxim prometut per endavant: el resultat de l'experiment és part de l'entrega.
 
-> **Relació entre la demo i els requisits.** El pas 2 demostra RF-02 i RNF-02; el pas 4, RF-06 i RNF-01; el pas 5, RNF-06; i el pas 6, RF-13 i RF-23.
-
 ## 10. Fora d'abast
 
 - Passarel·la de pagament real i dades de targeta reals. El pagament és simulat. La «targeta» del mòdul antifrau és un identificador fictici.
@@ -353,7 +326,7 @@ Eines de càrrega: un generador propi (scripts que criden l'API) o una eina de c
 - Autenticació federada completa. Una sessió de demo és suficient per al nucli.
 - Revenda entre particulars fora del flux oficial del mòdul 6.
 
-## 11. Glossari de conceptes clau
+## 11. Glossari
 
 | Concepte | Definició breu |
 |---|---|
