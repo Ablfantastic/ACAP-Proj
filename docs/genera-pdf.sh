@@ -138,6 +138,7 @@ html = """<!DOCTYPE html>
   }
   p { margin: 0.35em 0 0.65em; }
   ul, ol { margin: 0.25em 0 0.7em; padding-left: 1.25em; }
+  ol { padding-left: 1.8em; }
   li { margin: 0.12em 0; }
   table {
     width: 100%;
@@ -167,6 +168,16 @@ html = """<!DOCTYPE html>
     overflow-wrap: anywhere;
     font-size: 8.5pt;
   }
+  blockquote {
+    margin: 0.7em 0 0.9em;
+    padding: 0.45em 0.8em;
+    border-left: 4px solid #3b7dd8;
+    background: #eef4fc;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  blockquote p { margin: 0.25em 0; }
+  hr { border: none; border-top: 1px solid #ddd; margin: 1em 0; }
   .mermaid {
     margin: 0.6em 0 0.9em;
     text-align: center;
