@@ -24,7 +24,7 @@ La demo simula molts usuaris comprant alhora i mostra, amb gràfiques, com respo
 
 ## 3. Abast
 
-### 3.1. Nucli (mínim entregable)
+### 3.1. Nucli
 
 El nucli és el que s'ha d'entregar sí o sí. Ho fan aquests serveis:
 
@@ -244,32 +244,3 @@ Eines de càrrega: un generador propi (scripts que criden l'API) o una eina de c
 - Mapa de recinte dibuixat per a cada sala real. N'hi ha prou amb una graella de seients per zona.
 - Autenticació federada completa. Una sessió de demo és suficient per al nucli.
 - Revenda entre particulars fora del flux oficial del mòdul 6.
-
-## 11. Entregables
-
-- Aquesta especificació.
-- Infraestructura del nucli a AWS (Terraform, atès el repositori) i codi de les funcions i del flux.
-- Web estàtica desplegada darrere de CloudFront.
-- Guió de la demo i, si s'arriba al mòdul 7, l'informe curt de les proves de càrrega i de les fallades injectades, amb les gràfiques.
-- Instruccions per desplegar i per apagar l'entorn, de manera que no quedin recursos corrent.
-
-## 12. Riscos
-
-| Risc | Què fem |
-|---|---|
-| Vendre el mateix seient dues vegades per una condició de carrera | Escriptura condicional i comprovació de la reserva dins de Step Functions abans de marcar-lo venut. Prova explícita a la demo. |
-| Reintent d'SQS que duplica la venda | Idempotència per identificador de comanda. El segon intent troba la comanda ja confirmada i no torna a cobrar ni a generar una altra entrada. |
-| La sala d'espera es converteix en un coll d'ampolla tant com la venda | Al nucli, porta amb capacitat fixa. Amb el mòdul 2, l'estat calent viu a Redis. |
-| Cost inesperat de la prova de càrrega | Límit de durada, límit d'usuaris virtuals i apagat de l'entorn en acabar. |
-| Massa mòduls i nucli inacabat | El nucli es tanca abans d'obrir mòduls. El mòdul 7 es prioritza sobre els mòduls 3, 4, 5 i 6 si cal triar. |
-
-## 13. Criteri d'acceptació del nucli
-
-El nucli es considera fet quan es pot demostrar, sobre un entorn AWS desplegat, tot això:
-
-- Es consulta un esdeveniment.
-- Diversos usuaris entren a la sala d'espera i no arriben tots alhora al mapa.
-- Una compra recorre la cua i Step Functions fins a generar l'entrada.
-- Una segona compra del mateix seient és rebutjada.
-- Una reserva no pagada acaba alliberant el seient.
-- Hi ha mètriques o gràfiques de la prova amb usuaris simulats.
