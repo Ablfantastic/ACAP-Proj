@@ -19,7 +19,7 @@ Proyecto de grupo de ACAP (Adrià, Emma, Marc, Abel, Albert). Web tipo Ticketmas
 | Pieza | Servicio | Papel |
 |---|---|---|
 | Web estática (catálogo, sala de espera, compra) | S3 + CloudFront | Servir la interfaz |
-| API | API Gateway (REST/HTTP) + Lambda | Recibir y validar peticiones |
+| API | API Gateway (REST) + Lambda | Recibir y validar peticiones |
 | Eventos, asientos, turnos, comandas | DynamoDB | Fuente de verdad |
 | Cola de compras | SQS (estándar) | Absorber picos |
 | Reservar → pagar → generar entrada | Step Functions | Orquestar la compra |
@@ -42,32 +42,21 @@ Requisitos del núcleo: RF-01 a RF-10 (ver `docs/especificacio.md` §4.1).
 5. Si tiene éxito → la API publica la compra en SQS y devuelve `orderId` + estado `en_cola`.
 6. Lambda trabajadora consume SQS → arranca Step Functions: confirmar reserva vigente → pago simulado → asiento `vendido` + entrada generada.
 7. Si falla el pago o caducó la reserva → comanda `fallida` y el asiento se libera (condicionalmente).
-8. Proceso periódico (EventBridge + Lambda, o TTL + lógica) libera reservas vencidas solo si aún son de esa comanda.
+8. Proceso periódico (EventBridge + Lambda) libera reservas vencidas solo si aún son de esa comanda. El TTL de DynamoDB no sirve: borra el ítem en vez de devolverlo a `libre` y puede tardar horas.
 
-### Contrato de API (propuesta — cerrarlo hoy para poder trabajar en paralelo)
+### Contrato de API y modelo de datos
 
-| Método | Ruta | Qué hace |
-|---|---|---|
-| GET | `/events` | Lista eventos publicados |
-| GET | `/events/{eventId}` | Detalle: fecha, recinto, zonas, precio (dinámico si módulo 3), aforo |
-| POST | `/events/{eventId}/queue` | Entra en la sala de espera → `{ turnId, position }` |
-| GET | `/events/{eventId}/queue/{turnId}` | Posición y estado del turno (`esperando`/`admitido`/`expirado`) |
-| GET | `/events/{eventId}/seats` | Mapa de asientos (solo con turno `admitido`) |
-| POST | `/events/{eventId}/seats/{seatId}/reserve` | Reserva condicional → `{ orderId, status: "en_cola", expiresAt }` o 409 |
-| GET | `/orders/{orderId}` | Estado de la comanda y, si está confirmada, la entrada |
-| GET | `/tickets/{ticketId}/verify` | (módulo 4c) Verifica la firma KMS del QR |
+**La fuente es `README.md`**: §4 (rutas, cabeceras `X-Session-Id` / `X-Admission-Token`, formato de error, códigos HTTP, importes en céntimos), §5 (tablas y claves) y §6 (mensajes SQS, Kinesis y WebSocket). No se duplican aquí para que no se desincronicen. Si cambia el contrato, se actualiza el README **y** `frontend/js/mock-server.js`, que lo implementa.
 
-Identidad: sesión de demo simple (`userId`/`sessionId` en cabecera), sin autenticación real.
+Tablas tal como están en Terraform (`infra/modules/data`), con nombre `acap-<env>-<tabla>`:
 
-### Modelo de datos DynamoDB (propuesta)
-
-| Tabla | PK | SK | Notas |
+| Tabla | PK | SK | GSI |
 |---|---|---|---|
-| `Events` | `eventId` | `ZONE#{zoneId}` o `META` | Zonas con precio base, aforo, precio actual (módulo 3), mín/máx |
-| `Seats` | `eventId` | `seatId` (`{zona}#{fila}#{num}`) | `status`, `orderId`, `expiresAt` |
-| `Queue` | `eventId` | `turnNumber` | `sessionId`, `enteredAt`, `status` (contador atómico para el número de turno) |
-| `Orders` | `orderId` | — | `eventId`, `seatId`, `status`, `idempotencyKey`, `cardId`, `ip` (para 4b), `flagged` |
-| `Tickets` | `ticketId` | — | `orderId`, `seatId`, `code` (firmado con KMS en 4c) |
+| `events` | `eventId` | `sk` (`META` \| `ZONE#{zoneId}` \| `COUNTER`) | — |
+| `seats` | `eventId` | `seatId` (`{zoneId}#{fila}#{num}`) | `by-status-expires` (`status`, `expiresAt`): reservas caducadas |
+| `queue` | `eventId` | `turnNumber` (N) | `by-turnId` (`turnId`) |
+| `orders` | `orderId` | — | `by-card` y `by-ip` (+ `createdAt`): antifraude 4b |
+| `tickets` | `ticketId` | — | — |
 
 ## 3. Módulos de ampliación
 
@@ -107,31 +96,45 @@ Dependencias a tener en cuenta:
 - 3c (persona 3) también consume el stream de 3a.
 - 4c (persona 4) expone el endpoint `/verify` en la API de la persona 2.
 - 4a (persona 5) se coloca delante del CloudFront de la persona 1 o de la API de la persona 2.
-- Todos dependen del esqueleto de infra (persona 5) y del contrato de API + modelo de datos.
+- Todos dependen del esqueleto de infra (ya en `infra/`) y del contrato de API + modelo de datos (README §4–5).
 
-### Formato de evento Kinesis (propuesta)
+El formato del evento Kinesis (3a → 3b, 3c) está en README 6.4.
 
-```json
-{ "type": "visit|reserve|purchase", "eventId": "...", "zoneId": "...", "seatId": "...", "orderId": "...", "ts": "2026-11-19T10:00:00Z" }
-```
-Partition key: `eventId`.
-
-## 5. Estructura del repo y convenciones (propuesta)
+## 5. Estructura del repo y convenciones
 
 ```
-infra/            Terraform (un módulo por pieza: web, api, data, queue, workflow, ...)
-backend/          Lambdas (una carpeta por función)
-  api/  queue/  worker/  pricing/  ...
-stepfunctions/    Definición ASL de la máquina de estados
-frontend/         Web estática (HTML/JS, sin framework pesado salvo acuerdo)
-load-tests/       Scripts de carga y escenarios de caos (módulo 7)
-docs/             Especificación, informe y gráficas
+README.md         Decisiones a acordar (contrato de API, modelo de datos, parámetros...)
+CLAUDE.md         Este fichero
+docs/             Especificación (catalán), informe y gráficas
+frontend/         ✅ Web estática, HTML + JS vanilla con módulos ES, sin build (ver frontend/README.md)
+infra/            ✅ Terraform del núcleo (ver infra/README.md)
+  modules/        data · queue · api · web  (añadir aquí los nuevos: lambdas, workflow, streaming, waf...)
+backend/          ⏳ Lambdas, una carpeta por función + backend/common/ (propuesta: Python 3.12)
+stepfunctions/    ⏳ Definición ASL de la máquina de estados
+load-tests/       ⏳ Scripts de carga y caos (módulo 7)
 ```
 
-- **IaC:** Terraform (el `.gitignore` ya está preparado). Región y runtime de Lambda por decidir (propuesta: `eu-west-1`/`eu-south-2` y Python 3.12).
-- **Nombres de recursos** con prefijo del proyecto (p. ej. `acap-tickets-<recurso>`) y tags `Project=acap` para poder limpiar y controlar coste.
-- **Git:** `main` siempre desplegable. Ramas cortas por persona/tarea (`feat/frontend`, `feat/api-reservas`, `feat/sala-espera`, `feat/compra`, `feat/infra`), merge por PR con revisión de al menos otra persona. Commits estilo Conventional Commits (`feat:`, `fix:`, `docs:`, `build:`...).
-- **Frontend sin backend:** trabajar contra mocks que respeten el contrato de API de §2 hasta que existan los endpoints; la URL de la API se inyecta por configuración (`config.js`).
+- **Cuentas AWS:** cada persona desarrolla en **su propia cuenta** y despliega el stack completo; una **cuenta común de demo** (propuesta: la de P5) despliega `main`. Pruebas de carga y caos solo en la de demo. Perfil de AWS CLI `acap-dev` para la propia. Detalle en README §1.
+- **IaC:** Terraform ≥ 1.10, provider AWS 6.x, región `eu-west-1`. Estado local en la cuenta propia; bucket S3 en la de demo (bloque comentado en `infra/versions.tf`). `.terraform.lock.hcl` sí se sube; `terraform.tfvars` no (está en `.gitignore`).
+- **Nombres:** `acap-<env>-<recurso>` (p. ej. `acap-dev-seats`), tags `Project`, `Env`, `ManagedBy` por `default_tags`. Nada de ARN ni IDs de cuenta escritos a mano: se pasan por `outputs` de los módulos.
+- **Recursos que cobran por hora** (ElastiCache, WAF, Kinesis): detrás de una variable `enable_<algo>`, a `false` por defecto.
+- **Rutas de la API:** al añadir una ruta en `infra/modules/api`, incluirla en `triggers` del `aws_api_gateway_deployment` o no se redespliega. Falta configurar CORS (README 4.7).
+- **Frontend:** `config.js` lo genera Terraform (`API_BASE_URL`, `USE_MOCKS`). Con `frontend_use_mocks = true` usa `js/mock-server.js`, que implementa el contrato: es la referencia de comportamiento para el backend real. Los valores de estados solo están en `frontend/js/constants.js`. Escapar siempre con `esc()` los datos de la API antes de meterlos en HTML.
+- **Git:** `main` siempre desplegable; ramas cortas `feat/<tema>`; PR a `main` con revisión de otra persona; Conventional Commits (`feat:`, `fix:`, `docs:`, `build:`, `test:`).
+- **Finales de línea:** el equipo mezcla Windows y WSL. Usar siempre el mismo git para el repo; en WSL, `git config --global core.autocrlf input`. Pendiente: añadir `.gitattributes` con `* text=auto eol=lf` y `*.pdf binary`.
+
+### Comandos
+
+```bash
+# Frontend en local (con mocks)
+cd frontend && python -m http.server 5173
+
+# Desplegar en la cuenta propia
+cd infra && cp terraform.tfvars.example terraform.tfvars   # poner budget_email
+terraform init && terraform apply
+terraform output                                            # web_url, api_url, tablas, colas
+terraform destroy                                           # al acabar
+```
 
 ## 6. Demo (qué tiene que enseñar)
 
@@ -148,11 +151,19 @@ El informe indica cuántos usuarios virtuales, cuánto duró la prueba y qué se
 
 Pasarela de pago real, app móvil, mapa dibujado del recinto (basta cuadrícula por zona), autenticación federada, reventa entre particulares.
 
-## 8. Para hoy (primer avance)
+## 8. Estado y siguientes pasos
 
-- [ ] **Todos:** cerrar contrato de API (§2), modelo de datos y formato del evento Kinesis; subir este `CLAUDE.md` a `main`.
-- [ ] **P5 Infra:** esqueleto Terraform (provider, backend de estado, tags), tablas DynamoDB y bucket S3 + CloudFront vacíos; script de datos semilla (1 evento, 2–3 zonas, cuadrícula pequeña).
-- [ ] **P1 Frontend:** rama `feat/frontend`; páginas de catálogo, detalle, sala de espera y mapa de asientos contra mocks.
-- [ ] **P2 API:** Lambdas `GET /events`, `GET /events/{id}` y `POST .../reserve` con escritura condicional (+ test de doble reserva).
-- [ ] **P3 Sala de espera:** contador atómico de turnos, ventana de admisión y `GET .../queue/{turnId}`.
-- [ ] **P4 Compra:** máquina de estados Step Functions con pago simulado (éxito/fallo inyectable) y Lambda trabajadora SQS.
+Hecho (en `main`, 2026-11-19):
+
+- [x] `README.md` con las decisiones a acordar y `CLAUDE.md`.
+- [x] **Frontend del núcleo** contra mocks: catálogo, detalle con cuenta atrás, sala de espera (polling), mapa de asientos con 409, estado de comanda y entrada. Simulador con pago fallido (`card_fail`).
+- [x] **Esqueleto Terraform**: 5 tablas DynamoDB con GSI, SQS de compras + DLQ, API Gateway REST con X-Ray (solo `GET /health`), S3 + CloudFront con `config.js` generado, alarma de AWS Budgets. Validado con `terraform plan` (36 recursos); todavía no desplegado.
+
+Pendiente del núcleo para dejar de usar mocks:
+
+- [ ] **Todos:** cerrar las decisiones 🔴 del README (sobre todo 3.1 lenguaje, 4.4 token de admisión, 5.4 idioma de estados, 6.1 mensaje SQS).
+- [ ] **P5 Infra:** revisar `infra/`, script de datos semilla (mismo evento que `frontend/mocks/events.json`), CORS en la API, cuenta de demo.
+- [ ] **P2 API:** Lambdas `GET /events`, `GET /events/{id}`, `GET /seats`, `POST .../reserve` (escritura condicional + SQS) y `GET /orders/{id}`, con test de doble reserva. La primera ruta completa (Lambda + IAM + ruta + CORS) sirve de patrón para los demás.
+- [ ] **P3 Sala de espera:** contador atómico de turnos, ventana de admisión, `admissionToken`, `POST /queue` y `GET /queue/{turnId}`.
+- [ ] **P4 Compra:** Lambda trabajadora SQS, Step Functions con pago simulado (éxito/fallo inyectable), liberación periódica de reservas caducadas.
+- [ ] **P1 Frontend:** desplegar en la cuenta propia, poner `frontend_use_mocks = false` cuando existan los endpoints; después módulo 5 (Bedrock), 3b y la parte web del WebSocket.
