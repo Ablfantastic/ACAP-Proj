@@ -1,0 +1,12 @@
+# Copia este fichero a terraform.tfvars (está en .gitignore) y ajústalo.
+#   cp terraform.tfvars.example terraform.tfvars
+
+aws_profile = "acap-dev"
+env         = "dev"
+
+# Correo para los avisos de presupuesto. Déjalo puesto: es tu cuenta de pago.
+budget_email     = "tu-correo@ejemplo.com"
+budget_limit_usd = 10
+
+# true hasta que existan los endpoints reales de la API.
+frontend_use_mocks = true
