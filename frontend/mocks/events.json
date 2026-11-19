@@ -1,0 +1,42 @@
+{
+  "_comment": "Datos semilla del simulador. Los campos de cada evento siguen GET /events/{eventId} del README §4; 'layout' (filas x asientos por fila) y 'saleOpensInSeconds' solo los usa el simulador.",
+  "events": [
+    {
+      "eventId": "evt-satelites-2026",
+      "name": "Gira de Invierno",
+      "artist": "Los Satélites",
+      "venue": "Palau Sant Jordi, Barcelona",
+      "date": "2026-12-12T20:00:00Z",
+      "saleStatus": "abierta",
+      "zones": [
+        { "zoneId": "PISTA", "name": "Pista", "basePrice": 6500, "currentPrice": 6500, "layout": { "rows": 4, "seatsPerRow": 12 } },
+        { "zoneId": "GRADA", "name": "Grada", "basePrice": 4500, "currentPrice": 4500, "layout": { "rows": 3, "seatsPerRow": 10 } },
+        { "zoneId": "VIP", "name": "VIP", "basePrice": 12000, "currentPrice": 12000, "layout": { "rows": 2, "seatsPerRow": 8 } }
+      ]
+    },
+    {
+      "eventId": "evt-jazz-2026",
+      "name": "Festival de Jazz",
+      "artist": "Varios artistas",
+      "venue": "Palau de la Música, Barcelona",
+      "date": "2026-12-20T19:30:00Z",
+      "saleStatus": "programada",
+      "saleOpensInSeconds": 90,
+      "zones": [
+        { "zoneId": "PLATEA", "name": "Platea", "basePrice": 3500, "currentPrice": 3500, "layout": { "rows": 4, "seatsPerRow": 10 } },
+        { "zoneId": "ANFI", "name": "Anfiteatro", "basePrice": 2500, "currentPrice": 2500, "layout": { "rows": 3, "seatsPerRow": 10 } }
+      ]
+    },
+    {
+      "eventId": "evt-indie-2026",
+      "name": "Noche Indie",
+      "artist": "Varios artistas",
+      "venue": "Razzmatazz, Barcelona",
+      "date": "2026-11-28T21:00:00Z",
+      "saleStatus": "agotada",
+      "zones": [
+        { "zoneId": "GENERAL", "name": "General", "basePrice": 2000, "currentPrice": 2000, "layout": { "rows": 3, "seatsPerRow": 10 } }
+      ]
+    }
+  ]
+}
